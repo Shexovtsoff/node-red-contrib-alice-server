@@ -1,0 +1,18 @@
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: yandex-smart-home-gateway
+    restart: unless-stopped
+    ports:
+      - "5000:5000"  # Публичный порт: шлюз Яндекс Диалогов и WebSocket Node-RED
+      - "5001:5001"  # Порт веб-панели управления и статистики
+    env_file:
+      - .env
+    volumes:
+      - gateway-data:/data
+
+volumes:
+  gateway-data:
+    name: yandex-gateway-data

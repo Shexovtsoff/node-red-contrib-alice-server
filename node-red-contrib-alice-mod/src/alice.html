@@ -1,0 +1,403 @@
+<script type="text/javascript">
+    RED.nodes.registerType('alice-service',{
+        category: 'config',
+        defaults: {
+            name: { value: "" },
+            serverUrl: { value: "http://localhost:5000" },
+            wsUrl: { value: "" },
+            clientId: { value: "cb4b49290b2c4149be740219ba51b363" }
+        },
+        credentials: {
+            email: { type: "text", required: false },
+            password: { type: "password", required: false },
+            token: { type: "password", required: false },
+            id: { type: "text", required: false }
+        },
+        label: function() {
+            var email = (this.credentials && this.credentials.email) || "";
+            if (this.name) {
+                return this.name;
+            }
+            if (email) {
+                return "Alice (" + email + ")";
+            }
+            return "Alice-Gateway (" + (this.serverUrl || "http://localhost:5000") + ")";
+        },
+        oneditprepare: function() {
+            var node = this;
+
+            if (!$('#node-config-input-serverUrl').val()) {
+                $('#node-config-input-serverUrl').val("http://localhost:5000");
+            }
+
+            function refreshAuthUI() {
+                var email = $('#node-config-input-email').val() || (node.credentials && node.credentials.email) || "";
+                var yid = $('#node-config-input-id').val() || (node.credentials && node.credentials.id) || "";
+                var raw = $('#node-config-input-token').val() || "";
+                var hasToken = !!(node.credentials && (node.credentials.has_token || node.credentials._has_token));
+                var isAuthed = (email && email.trim().length > 0) && (raw.length > 0 || hasToken);
+
+                if (isAuthed) {
+                    if (email && !$('#node-config-input-email').val()) {
+                        $('#node-config-input-email').val(email);
+                    }
+                    if (yid && !$('#node-config-input-id').val()) {
+                        $('#node-config-input-id').val(yid);
+                    }
+                    if (hasToken && !$('#node-config-input-token').val()) {
+                        $('#node-config-input-token').val('__PWRD__');
+                    }
+                    $('#auth-status-badge').html('<span style="color: #2e7d32; font-weight: bold;"><i class="fa fa-check-circle"></i> Авторизован</span>');
+                    $('#auth-user-email-display').text(email || "Привязан");
+                    $('#auth-user-id-display').text(yid || "—");
+                    $('#auth-logged-in-panel').show();
+                    $('#auth-login-panel').hide();
+                } else {
+                    $('#auth-status-badge').html('<span style="color: #c62828; font-weight: bold;"><i class="fa fa-exclamation-circle"></i> Не привязан (требуется авторизация)</span>');
+                    $('#auth-user-email-display').text("—");
+                    $('#auth-user-id-display').text("—");
+                    $('#auth-logged-in-panel').hide();
+                    $('#auth-login-panel').show();
+                }
+            }
+
+            // 1. Первоначальный вызов
+            refreshAuthUI();
+
+            // 2. Слушаем события от ядра Node-RED при асинхронном заполнении полей credentials
+            $('#node-config-input-email, #node-config-input-id, #node-config-input-token').on('change input', function() {
+                refreshAuthUI();
+            });
+
+            // 3. Страховочные вызовы на случай микрозадержек загрузки credentials из Node-RED
+            setTimeout(refreshAuthUI, 50);
+            setTimeout(refreshAuthUI, 200);
+            setTimeout(refreshAuthUI, 500);
+
+            $('#btn-logout-yandex').off('click').on('click', function(e) {
+                e.preventDefault();
+                var sUrl = ($('#node-config-input-serverUrl').val() || "http://localhost:5000").replace(/\/+$/, '');
+                var raw = $('#node-config-input-token').val();
+                var token = "";
+                if (raw && raw !== "__PWRD__" && raw !== "local-token") {
+                    try {
+                        var p = JSON.parse(raw);
+                        token = p.access_token || raw;
+                    } catch(err) {
+                        token = raw;
+                    }
+                }
+
+                function finishLogout() {
+                    if (node && node.credentials) {
+                        node.credentials.has_token = false;
+                        node.credentials.email = "";
+                        node.credentials.id = "";
+                        node.credentials.token = "";
+                    }
+                    $('#node-config-input-email').val("").trigger("change");
+                    $('#node-config-input-id').val("").trigger("input").trigger("change");
+                    $('#node-config-input-token').val("").trigger("change");
+                    $('#node-config-input-password').val("").trigger("change");
+                    $('#verification_code').val("").prop('disabled', false);
+                    $('#btn-submit-token').prop('disabled', false);
+                    refreshAuthUI();
+                    RED.notify("Вы вышли из аккаунта. Токен удален из базы.", { type: "compact" });
+                }
+
+                // 1. Если токен в открытом виде прямо в форме (только что получен)
+                if (token && token.startsWith("gtw_")) {
+                    $.ajax({
+                        url: sUrl + "/api/v1/logout",
+                        type: "POST",
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': 'Bearer ' + token
+                        },
+                        data: JSON.stringify({ token: token })
+                    }).always(function() {
+                        finishLogout();
+                    });
+                    return;
+                }
+
+                // 2. Иначе отправляем запрос через сервер Node-RED (где лежит реальный токен в credentials)
+                var localUrl = (node && node.id) ? ("/noderedhome/" + node.id + "/logout") : "/noderedhome/local/logout";
+                $.ajax({
+                    url: localUrl,
+                    type: "POST"
+                }).always(function() {
+                    finishLogout();
+                });
+            });
+
+            $('#btn-clear-all-devices').off('click').on('click', function(e) {
+                e.preventDefault();
+                ClearDevicesConfigOnGateway(node);
+            });
+
+            var defaultClientId = "cb4b49290b2c4149be740219ba51b363";
+            if (!$('#node-config-input-clientId').val()) {
+                $('#node-config-input-clientId').val(node.clientId || defaultClientId);
+            }
+
+            function fetchGatewayClientId() {
+                var sUrl = ($('#node-config-input-serverUrl').val() || "http://localhost:5000").replace(/\/+$/, '');
+                $.ajax({
+                    url: sUrl + "/api/v1/oauth_client_id",
+                    type: "GET",
+                    dataType: "json",
+                    timeout: 2500
+                }).done(function(data) {
+                    if (data && data.client_id) {
+                        var curVal = ($('#node-config-input-clientId').val() || "").trim();
+                        if (!curVal || curVal === defaultClientId) {
+                            $('#node-config-input-clientId').val(data.client_id);
+                        }
+                    }
+                }).fail(function() {
+                    // Игнорируем ошибку при недоступности шлюза
+                });
+            }
+
+            fetchGatewayClientId();
+            $('#node-config-input-serverUrl').on('change blur', fetchGatewayClientId);
+
+            $('#btn-open-yandex-oauth').off('click').on('click', function(e) {
+                e.preventDefault();
+                var cId = ($('#node-config-input-clientId').val() || "").trim() || defaultClientId;
+                var authUrl = 'https://oauth.yandex.ru/authorize?response_type=code&client_id=' + encodeURIComponent(cId) + '&redirect_uri=https://oauth.yandex.ru/verification_code';
+                window.open(authUrl, '_blank');
+            });
+        },
+        oneditsave: function() {
+            var email = $('#node-config-input-email').val();
+            if (!$('#node-config-input-name').val()) {
+                if (email && email.trim().length > 0) {
+                    $('#node-config-input-name').val("Alice (" + email + ")");
+                } else {
+                    $('#node-config-input-name').val("Alice Gateway");
+                }
+            }
+            // Страховка сохранения токена: если нода была авторизована, не даем Node-RED стереть пароль пустой строкой
+            if (this.credentials && (this.credentials.has_token || this.credentials._has_token) && email && email.trim().length > 0) {
+                var cur = $('#node-config-input-token').val();
+                if (!cur || cur.trim() === '') {
+                    $('#node-config-input-token').val('__PWRD__');
+                }
+            }
+        }
+    });
+
+    function GetToken(code) {
+        if (!code || !code.trim()) {
+            RED.notify("Пожалуйста, введите код подтверждения из Яндекса", { type: "warning" });
+            return;
+        }
+
+        var sUrl = ($('#node-config-input-serverUrl').val() || "http://localhost:5000").replace(/\/+$/, '');
+        RED.notify("Запрос токена от сервера... Пожалуйста, подождите.", { type: "compact" });
+        $('#verification_code').prop('disabled', true);
+        $('#btn-submit-token').prop('disabled', true);
+
+        $.ajax({
+            url: sUrl + "/api/v1/getyatoken",
+            type: "POST",
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            crossDomain: true,
+            contentType: "application/json",
+            data: JSON.stringify({ code: code.trim() }),
+            dataType: "json"
+        })
+        .done(function(data) {
+            RED.notify("Авторизация успешна! Нажмите 'Готово' и затем 'Развернуть' (Deploy), чтобы сохранить.", { type: "success" });
+            $('#node-config-input-email').val(data.email).trigger("change");
+            $('#node-config-input-id').val(data.id).trigger("input").trigger("change");
+            $('#node-config-input-password').val(data.password || "").trigger("change");
+            var tokenStr = (typeof data.token === 'object') ? JSON.stringify(data.token) : String(data.token);
+            $('#node-config-input-token').val(tokenStr).trigger("change");
+            if (node.credentials) {
+                node.credentials.has_token = true;
+                node.credentials.email = data.email;
+                node.credentials.id = data.id;
+            }
+            $('#verification_code').val("").prop('disabled', false);
+            $('#btn-submit-token').prop('disabled', false);
+            refreshAuthUI();
+        })
+        .fail(function(error) {
+            var msg = "Ошибка авторизации";
+            if (error.responseJSON && error.responseJSON.detail) {
+                msg += ": " + error.responseJSON.detail;
+            } else if (error.responseJSON && error.responseJSON.message) {
+                msg += ": " + error.responseJSON.message;
+            } else if (error.statusText) {
+                msg += ": " + error.statusText;
+            }
+            RED.notify(msg, { type: "error" });
+            $('#verification_code').prop('disabled', false);
+            $('#btn-submit-token').prop('disabled', false);
+        });
+    }
+
+    function ClearDevicesConfigOnGateway(nodeRef) {
+        RED.notify("Запрос на очистку отправлен...", { type: "compact" });
+        var sUrl = ($('#node-config-input-serverUrl').val() || "http://localhost:5000").replace(/\/+$/, '');
+        var raw = $('#node-config-input-token').val();
+        var token = "";
+        if (raw && raw !== "__PWRD__" && raw !== "local-token") {
+            try {
+                var p = JSON.parse(raw);
+                token = p.access_token || raw;
+            } catch(e) {
+                token = raw;
+            }
+        }
+
+        // 1. Если токен в открытом виде в форме (только что получен и ещё не сохранён)
+        if (token && token.startsWith("gtw_")) {
+            $.ajax({
+                url: sUrl + "/gtw/device/clearallconfigs",
+                type: "POST",
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + token
+                },
+                data: JSON.stringify({ token: token })
+            })
+            .done(function() {
+                RED.notify("Все конфигурации устройств на сервере успешно очищены", { type: "success" });
+            })
+            .fail(function(xhr) {
+                var msg = "Ошибка при очистке конфигураций на сервере";
+                if (xhr && xhr.responseJSON && xhr.responseJSON.detail) {
+                    msg += ": " + xhr.responseJSON.detail;
+                }
+                RED.notify(msg, { type: "error" });
+            });
+            return;
+        }
+
+        // 2. Иначе запрашиваем бэкенд Node-RED, где сохранён реальный токен узла
+        var nodeId = (nodeRef && nodeRef.id) ? nodeRef.id : "";
+        var email = $('#node-config-input-email').val() || (nodeRef && nodeRef.credentials && nodeRef.credentials.email) || "";
+        var suburl = email ? btoa(email) : "";
+        var localUrl = nodeId ? ("/noderedhome/" + nodeId + "/clearalldevice") : (suburl ? ("/noderedhome/" + suburl + "/clearalldevice") : "/noderedhome/local/clearalldevice");
+
+        $.ajax({
+            url: localUrl,
+            type: "GET"
+        })
+        .done(function() {
+            RED.notify("Все конфигурации устройств на сервере успешно очищены", { type: "success" });
+        })
+        .fail(function(xhr) {
+            var msg = "Ошибка при очистке конфигураций на сервере";
+            if (xhr && xhr.responseJSON && xhr.responseJSON.detail) {
+                msg += ": " + xhr.responseJSON.detail;
+            }
+            RED.notify(msg, { type: "error" });
+        });
+    }
+</script>
+
+<script type="text/x-red" data-template-name="alice-service">
+    <div class="form-row">
+        <label for="node-config-input-name"><i class="fa fa-tag"></i> Имя</label>
+        <input type="text" id="node-config-input-name" placeholder="Alice Gateway">
+    </div>
+
+    <div class="form-row">
+        <label for="node-config-input-serverUrl"><i class="fa fa-globe"></i> Адрес сервера</label>
+        <input type="text" id="node-config-input-serverUrl" placeholder="http://localhost:5000">
+    </div>
+
+    <div class="form-row">
+        <label for="node-config-input-wsUrl"><i class="fa fa-plug"></i> WebSocket URL</label>
+        <input type="text" id="node-config-input-wsUrl" placeholder="Оставьте пустым для авто (ws://<сервер>/v1/ws)">
+    </div>
+
+    <hr>
+    <div class="form-row">
+        <b><i class="fa fa-user-circle"></i> Авторизация Яндекс ID</b>
+    </div>
+
+    <!-- Блок при наличии авторизации -->
+    <div id="auth-logged-in-panel" style="display: none; padding: 12px; border: 1px solid #c8e6c9; background: #f1f8e9; border-radius: 4px; margin-bottom: 14px;">
+        <div style="margin-bottom: 8px;">
+            <b>Статус:</b> <span id="auth-status-badge"></span>
+        </div>
+        <div style="margin-bottom: 6px;">
+            <b>Email аккаунта:</b> <code id="auth-user-email-display" style="font-weight: bold; color: #1565c0;"></code>
+        </div>
+        <div style="margin-bottom: 10px;">
+            <b>Яндекс UID:</b> <code id="auth-user-id-display" style="color: #555;"></code>
+        </div>
+        <div>
+            <button type="button" id="btn-logout-yandex" class="ui-button" style="color: #c62828;">
+                <i class="fa fa-sign-out"></i> Сменить аккаунт / Выйти
+            </button>
+        </div>
+    </div>
+
+    <!-- Блок входа через OAuth verification code -->
+    <div id="auth-login-panel">
+        <div class="form-tips" style="margin-bottom: 12px;">
+            <span>Привязка Яндекс ID обязательна: шлюз изолирует устройства по вашему аккаунту и передает их в приложение «Дом с Алисой».</span>
+        </div>
+
+        <div class="form-row">
+            <label for="node-config-input-clientId" style="width: 110px;"><i class="fa fa-id-card"></i> Client ID</label>
+            <input type="text" id="node-config-input-clientId" placeholder="cb4b49290b2c4149be740219ba51b363" style="width: calc(100% - 130px);">
+            <div style="font-size: 0.82em; color: #777; margin-left: 115px; margin-top: 3px;">
+                Client ID вашего OAuth-приложения Яндекс (загружается автоматически из шлюза или вводится вручную)
+            </div>
+        </div>
+
+        <div class="form-row" style="margin-top: 10px;">
+            <p style="margin: 0 0 6px 0;"><b>Шаг 1:</b> Перейдите по ссылке и разрешите доступ приложению:</p>
+            <button type="button" id="btn-open-yandex-oauth" class="ui-button" style="font-weight: bold;">
+                <i class="fa fa-external-link"></i> Yandex Authentication
+            </button>
+        </div>
+
+        <div class="form-row" style="margin-top: 12px;">
+            <p style="margin: 0 0 6px 0;"><b>Шаг 2:</b> Скопируйте полученный код подтверждения (verification code) и нажмите кнопку:</p>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <input type="text" id="verification_code" placeholder="Вставьте verification code" style="width: 220px;">
+                <button type="button" id="btn-submit-token" onclick="GetToken($('#verification_code').val())" class="ui-button">
+                    <i class="fa fa-key"></i> Получить токен
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Поля данных авторизации Node-RED (видимые поля только для чтения, как в оригинальной ноде) -->
+    <div class="form-row" style="margin-top: 10px;">
+        <label for="node-config-input-email"><i class="fa fa-envelope"></i> Email</label>
+        <input type="text" id="node-config-input-email" readonly style="background: #fafafa;" placeholder="Не авторизован">
+    </div>
+    <div class="form-row">
+        <label for="node-config-input-id"><i class="fa fa-id-badge"></i> Яндекс UID</label>
+        <input type="text" id="node-config-input-id" readonly style="background: #fafafa;" placeholder="—">
+    </div>
+    <div style="display: none;">
+        <input type="password" id="node-config-input-password">
+        <input type="password" id="node-config-input-token">
+    </div>
+
+    <hr>
+    <div name="Clearing">
+        <div class="form-row"><b><i class="fa fa-trash"></i> Очистка данных на сервере</b></div>
+        <div class="form-tips" id="node-tip-clearing">
+            <span>Удаляет все конфигурации устройств вашего аккаунта с сервера шлюза. После очистки сделайте повторный Deploy (Развернуть), чтобы заново выгрузить актуальные устройства.</span>
+            <div style="text-align: end; margin-top: 10px;">
+                <button type="button" id="btn-clear-all-devices" class="ui-button" style="color: #c62828;">
+                    <i class="fa fa-trash"></i> Очистить устройства на сервере
+                </button>
+            </div>
+        </div>  
+    </div>
+</script>

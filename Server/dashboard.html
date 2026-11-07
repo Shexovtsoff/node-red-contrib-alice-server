@@ -1,0 +1,1379 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Панель управления — Yandex Smart Home Gateway</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-body: #0b0f19;
+            --bg-card: #131b2e;
+            --bg-card-sub: #1e293b;
+            --border-color: #27354f;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent-cyan: #06b6d4;
+            --accent-blue: #3b82f6;
+            --accent-green: #10b981;
+            --accent-amber: #f59e0b;
+            --accent-red: #ef4444;
+            --badge-green-bg: rgba(16, 185, 129, 0.15);
+            --badge-green-text: #34d399;
+            --badge-gray-bg: rgba(148, 163, 184, 0.15);
+            --badge-gray-text: #94a3b8;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-body);
+            color: var(--text-primary);
+            padding: 24px 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* HEADER */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 16px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 24px;
+        }
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .header-title i {
+            font-size: 2rem;
+            color: var(--accent-cyan);
+            background: rgba(6, 182, 212, 0.1);
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid rgba(6, 182, 212, 0.2);
+        }
+
+        .header-title h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+
+        .header-title p {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            margin-top: 2px;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .auto-refresh-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .auto-refresh-label input {
+            cursor: pointer;
+            accent-color: var(--accent-cyan);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--bg-card-sub);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn:hover {
+            background: #27354f;
+            border-color: var(--accent-cyan);
+        }
+
+        .btn-primary {
+            background: rgba(6, 182, 212, 0.15);
+            color: var(--accent-cyan);
+            border-color: rgba(6, 182, 212, 0.35);
+        }
+
+        .btn-primary:hover {
+            background: rgba(6, 182, 212, 0.28);
+            border-color: var(--accent-cyan);
+            color: #fff;
+        }
+
+        .btn-pin {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-secondary);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-pin:hover {
+            color: var(--accent-cyan);
+            border-color: var(--accent-cyan);
+        }
+
+        .btn-pin.pinned {
+            background: rgba(6, 182, 212, 0.18);
+            color: var(--accent-cyan);
+            border-color: rgba(6, 182, 212, 0.45);
+            font-weight: 600;
+        }
+
+        .btn-danger {
+            background: rgba(239, 68, 68, 0.12);
+            color: #f87171;
+            border-color: rgba(239, 68, 68, 0.25);
+            padding: 6px 12px;
+            font-size: 0.775rem;
+            border-radius: 6px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s ease;
+        }
+
+        .btn-danger:hover {
+            background: rgba(239, 68, 68, 0.28);
+            border-color: #ef4444;
+            color: #fff;
+        }
+
+        /* STATS GRID */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 18px 20px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .stat-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+        }
+
+        .stat-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .stat-value {
+            font-size: 1.45rem;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-top: 3px;
+        }
+
+        /* SEARCH BAR SECTION */
+        .search-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .search-box-wrap {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .search-icon-left {
+            position: absolute;
+            left: 14px;
+            color: var(--text-secondary);
+            font-size: 1rem;
+            pointer-events: none;
+        }
+
+        .search-input {
+            width: 100%;
+            background: var(--bg-card-sub);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 12px 42px 12px 42px;
+            border-radius: 10px;
+            font-size: 0.925rem;
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        .search-input:focus {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.15);
+        }
+
+        .search-clear-btn {
+            position: absolute;
+            right: 14px;
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 0.9rem;
+            display: none;
+            padding: 4px;
+        }
+
+        .search-clear-btn:hover {
+            color: var(--text-primary);
+        }
+
+        /* SEARCH RESULTS DROPDOWN / PANEL */
+        .search-results-panel {
+            margin-top: 14px;
+            padding-top: 14px;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            display: none;
+        }
+
+        .search-results-header {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .search-item {
+            background: var(--bg-card-sub);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+            transition: all 0.2s ease;
+        }
+
+        .search-item:hover {
+            border-color: var(--accent-cyan);
+            background: #223049;
+        }
+
+        .search-item-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .search-item-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #06b6d4, #3b82f6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.95rem;
+            color: #fff;
+        }
+
+        .search-item-text b {
+            font-size: 0.95rem;
+            color: var(--text-primary);
+        }
+
+        .search-item-text div {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-top: 2px;
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .search-item-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* SECTION HEADERS */
+        .page-section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+        }
+
+        .page-section-header h2 {
+            font-size: 1.15rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* USER CARD */
+        .user-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            margin-bottom: 24px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .user-card.selected-user {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 20px rgba(6, 182, 212, 0.25);
+        }
+
+        .user-header {
+            padding: 18px 22px;
+            background: rgba(30, 41, 59, 0.4);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 14px;
+        }
+
+        .user-identity {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .user-avatar {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #06b6d4, #3b82f6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 1.1rem;
+            color: #fff;
+            box-shadow: 0 2px 8px rgba(6, 182, 212, 0.3);
+        }
+
+        .user-name {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .user-meta {
+            font-size: 0.825rem;
+            color: var(--text-secondary);
+            display: flex;
+            gap: 14px;
+            margin-top: 4px;
+            flex-wrap: wrap;
+        }
+
+        .user-meta span {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .user-header-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .status-badge.online {
+            background: var(--badge-green-bg);
+            color: var(--badge-green-text);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .status-badge.offline {
+            background: var(--badge-gray-bg);
+            color: var(--badge-gray-text);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+        }
+
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+            display: inline-block;
+        }
+
+        .status-badge.online .pulse-dot {
+            box-shadow: 0 0 8px currentColor;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.3); opacity: 1; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+
+        .user-body {
+            padding: 22px;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 24px;
+        }
+
+        @media (min-width: 992px) {
+            .user-body {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        .section-box {
+            background: var(--bg-card-sub);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 16px 18px;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .section-header h3 {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--accent-cyan);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .section-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .section-header .count-badge {
+            font-size: 0.75rem;
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+            padding: 2px 8px;
+            border-radius: 12px;
+        }
+
+        .section-desc {
+            font-size: 0.775rem;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+            line-height: 1.4;
+        }
+
+        /* TABLES */
+        .table-responsive {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.825rem;
+        }
+
+        th {
+            text-align: left;
+            padding: 8px 10px;
+            color: var(--text-secondary);
+            font-weight: 600;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            text-transform: uppercase;
+            font-size: 0.7rem;
+            letter-spacing: 0.05em;
+        }
+
+        td {
+            padding: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            vertical-align: middle;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        .token-cell {
+            font-family: monospace;
+            background: rgba(0, 0, 0, 0.25);
+            padding: 3px 6px;
+            border-radius: 4px;
+            font-size: 0.775rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            max-width: 180px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .copy-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 0.8rem;
+            padding: 2px 4px;
+            border-radius: 4px;
+            transition: color 0.15s;
+        }
+
+        .copy-btn:hover {
+            color: var(--accent-cyan);
+        }
+
+        .token-type-pill {
+            font-size: 0.7rem;
+            padding: 2px 7px;
+            border-radius: 4px;
+            font-weight: 600;
+            display: inline-block;
+        }
+
+        .token-type-nodered {
+            background: rgba(59, 130, 246, 0.15);
+            color: #60a5fa;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+
+        .token-type-dialogs {
+            background: rgba(245, 158, 11, 0.15);
+            color: #fbbf24;
+            border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+
+        .device-type-badge {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .state-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.725rem;
+            background: rgba(255, 255, 255, 0.07);
+            margin-right: 4px;
+            margin-bottom: 2px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 28px 12px;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        .empty-state i {
+            font-size: 2rem;
+            margin-bottom: 10px;
+            opacity: 0.4;
+            display: block;
+        }
+
+        /* TOAST */
+        #toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: #1e293b;
+            color: #fff;
+            padding: 12px 20px;
+            border-radius: 8px;
+            border: 1px solid var(--accent-cyan);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+            display: none;
+            z-index: 9999;
+            font-size: 0.875rem;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .spin {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- HEADER -->
+        <header>
+            <div class="header-title">
+                <i class="fa-solid fa-network-wired"></i>
+                <div>
+                    <h1>Яндекс Умный Дом ⟷ node-red-contrib-alice</h1>
+                    <p>Панель управления и мониторинга шлюза</p>
+                </div>
+            </div>
+            <div class="header-actions">
+                <label class="auto-refresh-label">
+                    <input type="checkbox" id="auto-refresh-chk" checked>
+                    <span>Автообновление (5с)</span>
+                </label>
+                <button class="btn" id="refresh-btn" onclick="fetchData(true)">
+                    <i class="fa-solid fa-arrows-rotate" id="refresh-icon"></i>
+                    <span>Обновить</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- STATS OVERVIEW -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon" style="background: rgba(6, 182, 212, 0.15); color: var(--accent-cyan);">
+                    <i class="fa-solid fa-users"></i>
+                </div>
+                <div class="stat-info">
+                    <span class="stat-value" id="stat-users">—</span>
+                    <span class="stat-label">Пользователей</span>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green);">
+                    <i class="fa-solid fa-plug-circle-bolt"></i>
+                </div>
+                <div class="stat-info">
+                    <span class="stat-value" id="stat-online">—</span>
+                    <span class="stat-label">Node-RED онлайн</span>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon" style="background: rgba(59, 130, 246, 0.15); color: var(--accent-blue);">
+                    <i class="fa-solid fa-key"></i>
+                </div>
+                <div class="stat-info">
+                    <span class="stat-value" id="stat-tokens">—</span>
+                    <span class="stat-label">Активных токенов</span>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon" style="background: rgba(245, 158, 11, 0.15); color: var(--accent-amber);">
+                    <i class="fa-solid fa-lightbulb"></i>
+                </div>
+                <div class="stat-info">
+                    <span class="stat-value" id="stat-devices">—</span>
+                    <span class="stat-label">Устройств в шлюзе</span>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon" style="background: rgba(148, 163, 184, 0.15); color: var(--text-secondary);">
+                    <i class="fa-solid fa-clock"></i>
+                </div>
+                <div class="stat-info">
+                    <span class="stat-value" style="font-size: 1.1rem;" id="stat-uptime">—</span>
+                    <span class="stat-label">Аптайм сервера</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- SEARCH BAR SECTION -->
+        <div class="search-section">
+            <div class="search-box-wrap">
+                <i class="fa-solid fa-magnifying-glass search-icon-left"></i>
+                <input
+                    type="text"
+                    id="search-user-input"
+                    class="search-input"
+                    placeholder="Поиск аккаунта по Email, Яндекс UID или имени..."
+                    oninput="handleSearchInput()"
+                >
+                <button id="search-clear-btn" class="search-clear-btn" onclick="clearSearchInput()" title="Очистить поиск">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- SEARCH RESULTS LIST -->
+            <div id="search-results-panel" class="search-results-panel">
+                <div class="search-results-header">
+                    <span><i class="fa-solid fa-list-check"></i> Результаты поиска (<span id="search-count">0</span>):</span>
+                    <button class="btn btn-sm" onclick="clearSearchInput()" style="padding: 2px 8px; font-size: 0.75rem;">Скрыть</button>
+                </div>
+                <div id="search-results-list"></div>
+            </div>
+        </div>
+
+        <!-- ACTIVE SELECTED USER (IF OPENED FROM SEARCH) -->
+        <div id="selected-user-section" style="display: none; margin-bottom: 24px;">
+            <div class="page-section-header">
+                <h2>
+                    <i class="fa-solid fa-user-check" style="color: var(--accent-cyan);"></i>
+                    <span>Выбранный аккаунт для просмотра:</span>
+                </h2>
+                <button class="btn btn-sm" onclick="closeSelectedUser()">
+                    <i class="fa-solid fa-xmark"></i> Закрыть просмотр
+                </button>
+            </div>
+            <div id="selected-user-container"></div>
+        </div>
+
+        <!-- PINNED USERS (MAIN SCREEN) -->
+        <div class="page-section-header">
+            <h2>
+                <i class="fa-solid fa-thumbtack" style="color: var(--accent-cyan);"></i>
+                <span>Закрепленные пользователи (Главный экран)</span>
+            </h2>
+            <div style="display: flex; gap: 8px;">
+                <button class="btn btn-sm" id="toggle-view-all-btn" onclick="toggleViewAll()">
+                    <i class="fa-solid fa-users-viewfinder"></i> <span id="toggle-view-all-text">Показать всех</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- USERS LIST CONTAINER (PINNED OR ALL) -->
+        <div id="users-container">
+            <div class="empty-state">
+                <i class="fa-solid fa-spinner spin"></i>
+                <p>Загрузка данных сервера...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOAST NOTIFICATION -->
+    <div id="toast"></div>
+
+    <script>
+        let autoRefreshTimer = null;
+        let allUsers = [];
+        let selectedUserId = null;
+        let showAllMode = false;
+
+        // Хранилище закрепленных ID пользователей (localStorage)
+        function getPinnedIds() {
+            try {
+                const stored = localStorage.getItem("gateway_pinned_users");
+                if (stored) {
+                    return JSON.parse(stored);
+                }
+            } catch(e) {}
+            return [];
+        }
+
+        function setPinnedIds(ids) {
+            try {
+                localStorage.setItem("gateway_pinned_users", JSON.stringify(ids));
+            } catch(e) {}
+        }
+
+        function isPinned(userId) {
+            return getPinnedIds().includes(Number(userId));
+        }
+
+        function togglePin(userId, userEmail) {
+            const numId = Number(userId);
+            let pins = getPinnedIds();
+            if (pins.includes(numId)) {
+                pins = pins.filter(id => id !== numId);
+                setPinnedIds(pins);
+                showToast(`Пользователь ${userEmail} откреплен от главного экрана`);
+            } else {
+                pins.push(numId);
+                setPinnedIds(pins);
+                showToast(`Пользователь ${userEmail} закреплен 📌 на главном экране`);
+            }
+            render();
+        }
+
+        function showToast(text, isError = false) {
+            const toast = document.getElementById("toast");
+            toast.textContent = text;
+            toast.style.borderColor = isError ? "var(--accent-red)" : "var(--accent-cyan)";
+            toast.style.display = "block";
+            setTimeout(() => {
+                toast.style.display = "none";
+            }, 3000);
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                showToast("Токен скопирован в буфер обмена");
+            }).catch(() => {
+                showToast("Не удалось скопировать токен", true);
+            });
+        }
+
+        async function deleteToken(token) {
+            if (!confirm(`Вы действительно хотите отозвать токен ${token.substring(0, 14)}...? Экземпляр Node-RED с этим токеном отключится.`)) {
+                return;
+            }
+            try {
+                const res = await fetch(`/api/admin/tokens/${token}`, { method: 'DELETE' });
+                if (res.ok) {
+                    showToast("Токен успешно отозван и удален из базы");
+                    fetchData(false);
+                } else {
+                    const err = await res.json();
+                    showToast(err.detail || "Ошибка удаления токена", true);
+                }
+            } catch (e) {
+                showToast("Ошибка сети при удалении токена", true);
+            }
+        }
+
+        async function deleteDevice(userId, devId, devName) {
+            if (!confirm(`Удалить устройство «${devName || devId}» с сервера?`)) {
+                return;
+            }
+            try {
+                const res = await fetch(`/api/admin/devices/${userId}/${devId}`, { method: 'DELETE' });
+                if (res.ok) {
+                    showToast(`Устройство ${devName || devId} удалено`);
+                    fetchData(false);
+                } else {
+                    const err = await res.json();
+                    showToast(err.detail || "Ошибка удаления устройства", true);
+                }
+            } catch (e) {
+                showToast("Ошибка сети при удалении устройства", true);
+            }
+        }
+
+        async function clearAllUserDevices(userId, userEmail) {
+            if (!confirm(`ВНИМАНИЕ: Вы действительно хотите удалить ВСЕ устройства аккаунта «${userEmail}»?\n\nВсе виртуальные устройства пользователя будут удалены из базы данных и очищены в Яндекс Диалогах.`)) {
+                return;
+            }
+            try {
+                const res = await fetch(`/api/admin/users/${userId}/devices`, { method: 'DELETE' });
+                if (res.ok) {
+                    showToast(`Все устройства пользователя ${userEmail} успешно удалены`);
+                    fetchData(false);
+                } else {
+                    const err = await res.json();
+                    showToast(err.detail || "Ошибка очистки устройств", true);
+                }
+            } catch (e) {
+                showToast("Ошибка сети при очистке устройств", true);
+            }
+        }
+
+        async function deleteUserAccount(userId, userEmail) {
+            const confirmed = confirm(
+                `⚠️ ВНИМАНИЕ: Вы действительно хотите ПОЛНОСТЬЮ удалить аккаунт «${userEmail}»?\n\n` +
+                `Будет удалено:\n` +
+                `• Все токены авторизации Node-RED и Яндекс Диалогов\n` +
+                `• Все зарегистрированные устройства аккаунта\n` +
+                `• Будет отправлена команда очистки в Яндекс Диалоги\n` +
+                `• Запись пользователя будет полностью удалена из базы данных\n\n` +
+                `Это действие необратимо!`
+            );
+            if (!confirmed) return;
+
+            try {
+                const res = await fetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
+                if (res.ok) {
+                    showToast(`Аккаунт ${userEmail} со всеми токенами и устройствами удален`);
+                    if (Number(selectedUserId) === Number(userId)) {
+                        selectedUserId = null;
+                    }
+                    // Убираем из закрепленных, если был закреплен
+                    let pins = getPinnedUserIds().filter(id => Number(id) !== Number(userId));
+                    savePinnedUserIds(pins);
+                    fetchData(false);
+                } else {
+                    const err = await res.json();
+                    showToast(err.detail || "Ошибка удаления аккаунта", true);
+                }
+            } catch (e) {
+                showToast("Ошибка сети при удалении аккаунта", true);
+            }
+        }
+
+        function getDeviceIcon(type) {
+            if (type.includes("light")) return "fa-lightbulb";
+            if (type.includes("socket")) return "fa-plug";
+            if (type.includes("switch")) return "fa-toggle-on";
+            if (type.includes("sensor")) return "fa-temperature-half";
+            if (type.includes("media") || type.includes("tv")) return "fa-tv";
+            if (type.includes("thermostat")) return "fa-snowflake";
+            if (type.includes("openable")) return "fa-door-open";
+            if (type.includes("vacuum")) return "fa-robot";
+            return "fa-microchip";
+        }
+
+        function formatCapabilities(caps) {
+            if (!caps || !Array.isArray(caps) || caps.length === 0) return '<span style="color:#64748b">—</span>';
+            return caps.map(c => {
+                const type = (c.type || '').replace('devices.capabilities.', '');
+                let valStr = '';
+                if (c.state && c.state.value !== undefined) {
+                    if (c.state.value === true) valStr = ': <b style="color:#34d399">ВКЛ</b>';
+                    else if (c.state.value === false) valStr = ': <span style="color:#94a3b8">ВЫКЛ</span>';
+                    else valStr = `: <b>${c.state.value}</b>`;
+                }
+                return `<span class="state-chip">${type}${valStr}</span>`;
+            }).join(' ');
+        }
+
+        // ================= ПОИСК ПОЛЬЗОВАТЕЛЕЙ =================
+        function handleSearchInput() {
+            const input = document.getElementById("search-user-input");
+            const clearBtn = document.getElementById("search-clear-btn");
+            const panel = document.getElementById("search-results-panel");
+            const list = document.getElementById("search-results-list");
+            const countSpan = document.getElementById("search-count");
+
+            const q = input.value.trim().toLowerCase();
+            clearBtn.style.display = q.length > 0 ? "block" : "none";
+
+            if (!q) {
+                panel.style.display = "none";
+                return;
+            }
+
+            const matched = allUsers.filter(u => {
+                const email = (u.email || '').toLowerCase();
+                const uid = String(u.yandex_uid || '');
+                const name = (u.name || '').toLowerCase();
+                return email.includes(q) || uid.includes(q) || name.includes(q);
+            });
+
+            countSpan.textContent = matched.length;
+            panel.style.display = "block";
+
+            if (matched.length === 0) {
+                list.innerHTML = `
+                    <div style="padding: 14px; text-align: center; color: var(--text-secondary); font-size: 0.85rem;">
+                        Пользователи с таким Email или UID не найдены
+                    </div>
+                `;
+                return;
+            }
+
+            list.innerHTML = matched.map(u => {
+                const initial = (u.name || u.email || 'U').charAt(0).toUpperCase();
+                const pinned = isPinned(u.id);
+                return `
+                    <div class="search-item">
+                        <div class="search-item-info">
+                            <div class="search-item-avatar">${initial}</div>
+                            <div class="search-item-text">
+                                <b>${u.email}</b> ${u.name ? `<span style="color: var(--text-secondary);">(${u.name})</span>` : ''}
+                                <div>
+                                    <span><i class="fa-solid fa-id-card"></i> UID: <code>${u.yandex_uid}</code></span>
+                                    <span><i class="fa-solid fa-plug"></i> ${u.is_online ? '<span style="color: #34d399;">Онлайн</span>' : 'Офлайн'}</span>
+                                    <span><i class="fa-solid fa-lightbulb"></i> Устройств: ${u.devices ? u.devices.length : 0}</span>
+                                    <span><i class="fa-solid fa-key"></i> Токенов: ${u.tokens ? u.tokens.length : 0}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="search-item-actions">
+                            <button class="btn btn-primary" onclick="selectUser(${u.id})">
+                                <i class="fa-solid fa-eye"></i> Открыть аккаунт
+                            </button>
+                            <button class="btn-pin ${pinned ? 'pinned' : ''}" onclick="togglePin(${u.id}, '${u.email}')">
+                                <i class="fa-solid fa-thumbtack"></i> ${pinned ? 'Закреплен' : 'Закрепить'}
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function clearSearchInput() {
+            const input = document.getElementById("search-user-input");
+            input.value = "";
+            document.getElementById("search-clear-btn").style.display = "none";
+            document.getElementById("search-results-panel").style.display = "none";
+        }
+
+        function selectUser(userId) {
+            selectedUserId = Number(userId);
+            clearSearchInput();
+            render();
+            // Скроллим к карточке выбранного пользователя
+            const sec = document.getElementById("selected-user-section");
+            if (sec) {
+                sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+
+        function closeSelectedUser() {
+            selectedUserId = null;
+            render();
+        }
+
+        function toggleViewAll() {
+            showAllMode = !showAllMode;
+            document.getElementById("toggle-view-all-text").textContent = showAllMode ? "Только закрепленные" : "Показать всех";
+            render();
+        }
+
+        // ================= РЕНДЕР КАРТОЧКИ ПОЛЬЗОВАТЕЛЯ =================
+        function generateUserCardHtml(user, isHighlight = false) {
+            const initial = (user.name || user.email || 'U').charAt(0).toUpperCase();
+            const isOnline = user.is_online;
+            const onlineText = isOnline
+                ? `● Онлайн (${user.online_sockets} ${user.online_sockets === 1 ? 'инстанс' : 'инстанса'})`
+                : `○ Офлайн`;
+            const badgeClass = isOnline ? 'online' : 'offline';
+            const pinned = isPinned(user.id);
+
+            // Рендер токенов
+            const tokensHtml = user.tokens && user.tokens.length > 0 ? `
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Токен</th>
+                                <th>Тип</th>
+                                <th>Создан</th>
+                                <th style="text-align: right;">Действие</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${user.tokens.map(t => `
+                                <tr>
+                                    <td>
+                                        <span class="token-cell" title="${t.token}">
+                                            ${t.token.substring(0, 16)}...
+                                        </span>
+                                        <button class="copy-btn" onclick="copyToClipboard('${t.token}')" title="Скопировать токен">
+                                            <i class="fa-regular fa-copy"></i>
+                                        </button>
+                                    </td>
+                                    <td>
+                                        <span class="token-type-pill ${t.token_type === 'nodered' ? 'token-type-nodered' : 'token-type-dialogs'}">
+                                            ${t.token_type === 'nodered' ? 'Node-RED Client' : 'Yandex Skill OAuth'}
+                                        </span>
+                                    </td>
+                                    <td style="color: var(--text-secondary);">${t.created_at || '—'}</td>
+                                    <td style="text-align: right;">
+                                        <button class="btn btn-danger" onclick="deleteToken('${t.token}')" title="Отозвать этот токен">
+                                            <i class="fa-solid fa-trash-can"></i> Отозвать
+                                        </button>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            ` : `<div class="empty-state"><i class="fa-solid fa-key"></i><p>Нет выданных токенов</p></div>`;
+
+            // Рендер устройств
+            const devicesCount = user.devices ? user.devices.length : 0;
+            const devicesHtml = devicesCount > 0 ? `
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Устройство</th>
+                                <th>Комната</th>
+                                <th>Тип</th>
+                                <th>Состояния умений</th>
+                                <th style="text-align: right;">Действие</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${user.devices.map(d => `
+                                <tr>
+                                    <td>
+                                        <b style="font-size: 0.85rem;">${d.name || 'Без названия'}</b>
+                                        <div style="font-size: 0.725rem; color: #64748b; font-family: monospace;">ID: ${d.id}</div>
+                                    </td>
+                                    <td>
+                                        <span style="color: #cbd5e1;">${d.room || '—'}</span>
+                                    </td>
+                                    <td>
+                                        <span class="device-type-badge">
+                                            <i class="fa-solid ${getDeviceIcon(d.type || '')}"></i>
+                                            ${(d.type || '').replace('devices.types.', '')}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        ${formatCapabilities(d.capabilities)}
+                                    </td>
+                                    <td style="text-align: right;">
+                                        <button class="btn btn-danger" onclick="deleteDevice(${user.id}, '${d.id}', '${d.name || d.id}')" title="Удалить устройство">
+                                            <i class="fa-solid fa-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            ` : `<div class="empty-state"><i class="fa-solid fa-lightbulb"></i><p>Нет зарегистрированных устройств</p></div>`;
+
+            return `
+                <div class="user-card ${isHighlight ? 'selected-user' : ''}" id="user-card-${user.id}">
+                    <div class="user-header">
+                        <div class="user-identity">
+                            <div class="user-avatar">${initial}</div>
+                            <div>
+                                <div class="user-name">
+                                    ${user.email} ${user.name ? `<span style="font-size: 0.85rem; color: var(--text-secondary); font-weight: normal;">(${user.name})</span>` : ''}
+                                </div>
+                                <div class="user-meta">
+                                    <span><i class="fa-solid fa-id-card"></i> UID: <code>${user.yandex_uid}</code></span>
+                                    <span><i class="fa-solid fa-calendar-days"></i> Привязан: ${user.created_at || '—'}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="user-header-right">
+                            <button class="btn-pin ${pinned ? 'pinned' : ''}" onclick="togglePin(${user.id}, '${user.email}')" title="${pinned ? 'Открепить от главного экрана' : 'Закрепить на главном экране'}">
+                                <i class="fa-solid fa-thumbtack"></i> <span>${pinned ? 'Закреплен' : 'Закрепить на главной'}</span>
+                            </button>
+                            <button class="btn btn-danger" onclick="deleteUserAccount(${user.id}, '${user.email}')" title="Удалить аккаунт со всеми токенами и устройствами" style="padding: 6px 12px; font-size: 0.8rem;">
+                                <i class="fa-solid fa-user-xmark"></i> <span>Удалить аккаунт</span>
+                            </button>
+                            <div class="status-badge ${badgeClass}">
+                                <span class="pulse-dot"></span>
+                                <span>${onlineText}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="user-body">
+                        <!-- СЕКЦИЯ ТОКЕНОВ -->
+                        <div class="section-box">
+                            <div class="section-header">
+                                <h3><i class="fa-solid fa-key"></i> Токены доступа и подключения</h3>
+                                <span class="count-badge">${user.nodered_tokens_count !== undefined ? user.nodered_tokens_count : ((user.tokens || []).filter(t => t.token_type === 'nodered').length)} / 5</span>
+                            </div>
+                            <div class="section-desc">
+                                Экземпляры Node-RED используют свои gtw-токены (до 5 активных подключений). Токен Yandex Skill OAuth является постоянным для навыка Диалогов.
+                            </div>
+                            ${tokensHtml}
+                        </div>
+
+                        <!-- СЕКЦИЯ УСТРОЙСТВ -->
+                        <div class="section-box">
+                            <div class="section-header">
+                                <h3><i class="fa-solid fa-layer-group"></i> Устройства в Умном Доме</h3>
+                                <div class="section-header-actions">
+                                    <span class="count-badge">${devicesCount}</span>
+                                    ${devicesCount > 0 ? `
+                                        <button class="btn btn-danger" onclick="clearAllUserDevices(${user.id}, '${user.email}')" title="Удалить все устройства этого аккаунта">
+                                            <i class="fa-solid fa-trash-can"></i> Удалить все устройства
+                                        </button>
+                                    ` : ''}
+                                </div>
+                            </div>
+                            <div class="section-desc">
+                                Виртуальные устройства, опубликованные нодами этого пользователя в шлюз и синхронизированные с приложением «Дом с Алисой».
+                            </div>
+                            ${devicesHtml}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ================= ОСНОВНОЙ РЕНДЕР =================
+        function render() {
+            // 1. Рендер выбранного через поиск пользователя
+            const selectedSection = document.getElementById("selected-user-section");
+            const selectedContainer = document.getElementById("selected-user-container");
+            if (selectedUserId) {
+                const targetUser = allUsers.find(u => Number(u.id) === Number(selectedUserId));
+                if (targetUser) {
+                    selectedContainer.innerHTML = generateUserCardHtml(targetUser, true);
+                    selectedSection.style.display = "block";
+                } else {
+                    selectedSection.style.display = "none";
+                }
+            } else {
+                selectedSection.style.display = "none";
+            }
+
+            // 2. Рендер пользователей главного экрана (только закрепленные, либо все если включен showAllMode)
+            const container = document.getElementById("users-container");
+            const pinnedIds = getPinnedIds();
+
+            let displayedUsers = [];
+            if (showAllMode) {
+                displayedUsers = allUsers;
+            } else {
+                displayedUsers = allUsers.filter(u => pinnedIds.includes(Number(u.id)));
+            }
+
+            if (displayedUsers.length === 0) {
+                if (allUsers.length === 0) {
+                    container.innerHTML = `
+                        <div class="user-card" style="padding: 40px 20px; text-align: center;">
+                            <i class="fa-solid fa-user-slash" style="font-size: 2.5rem; color: var(--text-secondary); margin-bottom: 14px; opacity: 0.5;"></i>
+                            <h3 style="font-size: 1.15rem; margin-bottom: 6px;">Пользователи пока не зарегистрированы</h3>
+                            <p style="color: var(--text-secondary); font-size: 0.875rem;">
+                                Для регистрации подключите ноду <code>node-red-contrib-alice</code> и выполните авторизацию через кнопку «Получить токен».
+                            </p>
+                        </div>
+                    `;
+                } else {
+                    container.innerHTML = `
+                        <div class="user-card" style="padding: 40px 20px; text-align: center;">
+                            <i class="fa-solid fa-thumbtack" style="font-size: 2.5rem; color: var(--accent-cyan); margin-bottom: 14px; opacity: 0.6;"></i>
+                            <h3 style="font-size: 1.15rem; margin-bottom: 6px;">На главном экране нет закрепленных аккаунтов</h3>
+                            <p style="color: var(--text-secondary); font-size: 0.875rem; max-width: 600px; margin: 0 auto 18px auto;">
+                                Чтобы аккаунт отображался здесь, найдите его через строку поиска выше и нажмите кнопку «Закрепить 📌», либо нажмите кнопку ниже для отображения всех зарегистрированных пользователей.
+                            </p>
+                            <button class="btn btn-primary" onclick="toggleViewAll()">
+                                <i class="fa-solid fa-users"></i> Показать всех пользователей (${allUsers.length})
+                            </button>
+                        </div>
+                    `;
+                }
+                return;
+            }
+
+            container.innerHTML = displayedUsers.map(user => generateUserCardHtml(user, false)).join('');
+        }
+
+        async function fetchData(manual = false) {
+            const refreshIcon = document.getElementById("refresh-icon");
+            if (manual) refreshIcon.classList.add("spin");
+
+            try {
+                const res = await fetch('/api/admin/data');
+                if (!res.ok) throw new Error("HTTP " + res.status);
+                const data = await res.json();
+
+                // Обновляем статистику
+                document.getElementById("stat-users").textContent = data.server.total_users;
+                document.getElementById("stat-online").textContent = data.server.total_online_sockets;
+                document.getElementById("stat-tokens").textContent = data.server.total_tokens;
+                document.getElementById("stat-devices").textContent = data.server.total_devices;
+                document.getElementById("stat-uptime").textContent = data.server.uptime_str;
+
+                allUsers = data.users || [];
+
+                // Если в localStorage ещё ничего нет, закрепляем первого пользователя по умолчанию
+                if (getPinnedIds().length === 0 && allUsers.length > 0) {
+                    setPinnedIds([allUsers[0].id]);
+                }
+
+                render();
+            } catch (err) {
+                console.error("Fetch error:", err);
+                if (manual) showToast("Ошибка обновления данных: " + err.message, true);
+            } finally {
+                if (manual) setTimeout(() => refreshIcon.classList.remove("spin"), 500);
+            }
+        }
+
+        // Автообновление
+        function setupAutoRefresh() {
+            const chk = document.getElementById("auto-refresh-chk");
+            if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+            if (chk.checked) {
+                autoRefreshTimer = setInterval(() => fetchData(false), 5000);
+            }
+        }
+
+        document.getElementById("auto-refresh-chk").addEventListener("change", setupAutoRefresh);
+
+        // Первый запуск
+        fetchData(false);
+        setupAutoRefresh();
+    </script>
+</body>
+</html>
