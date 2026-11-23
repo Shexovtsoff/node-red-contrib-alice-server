@@ -30,6 +30,11 @@ from sqlalchemy.ext.asyncio import (
 
 import config
 
+try:
+    from Server.yandex_specs import YandexSpecHandler
+except ImportError:
+    from yandex_specs import YandexSpecHandler
+
 logger = logging.getLogger("smart_home_gateway.db")
 
 DATABASE_URL = config.DATABASE_URL
@@ -125,25 +130,15 @@ class Device(Base):
 
         clean_capabilities = []
         for cap in raw_caps:
-            c = {
-                "type": cap.get("type", "devices.capabilities.on_off"),
-                "retrievable": cap.get("retrievable", True),
-                "reportable": cap.get("reportable", True),
-            }
-            if "parameters" in cap and cap["parameters"]:
-                c["parameters"] = cap["parameters"]
-            clean_capabilities.append(c)
+            norm = YandexSpecHandler.normalize_capability_discovery(cap)
+            if norm:
+                clean_capabilities.append(norm)
 
         clean_properties = []
         for prop in raw_props:
-            p = {
-                "type": prop.get("type", "devices.properties.float"),
-                "retrievable": prop.get("retrievable", True),
-                "reportable": prop.get("reportable", True),
-            }
-            if "parameters" in prop and prop["parameters"]:
-                p["parameters"] = prop["parameters"]
-            clean_properties.append(p)
+            norm = YandexSpecHandler.normalize_property_discovery(prop)
+            if norm:
+                clean_properties.append(norm)
 
         res = {
             "id": str(self.id),
@@ -164,7 +159,12 @@ class Device(Base):
         return res
 
     def to_yandex_query_dict(self) -> dict:
-        """Форматирует устройство для опроса состояний (POST /v1.0/user/devices/query)."""
+        """Форматирует устройство для опроса состояний (POST /v1.0/user/devices/query).
+        Строго по спецификации Яндекс УД:
+        - Исключаются умения и свойства с retrievable: False
+        - Для color_setting инстанс строго один из: rgb, temperature_k, hsv, scene
+        - Строгая типизация значений (bool для on_off/toggle, int/float для range, str для mode/event)
+        """
         try:
             raw_caps = json.loads(self.capabilities_json)
         except Exception:
@@ -177,33 +177,24 @@ class Device(Base):
 
         caps_state = []
         for c in raw_caps:
-            st = c.get("state")
-            if st and isinstance(st, dict):
-                caps_state.append({
-                    "type": c.get("type"),
-                    "state": {
-                        "instance": st.get("instance"),
-                        "value": st.get("value")
-                    }
-                })
+            norm = YandexSpecHandler.normalize_capability_query_state(c)
+            if norm:
+                caps_state.append(norm)
 
         props_state = []
         for p in raw_props:
-            st = p.get("state")
-            if st and isinstance(st, dict):
-                props_state.append({
-                    "type": p.get("type"),
-                    "state": {
-                        "instance": st.get("instance"),
-                        "value": st.get("value")
-                    }
-                })
+            norm = YandexSpecHandler.normalize_property_query_state(p)
+            if norm:
+                props_state.append(norm)
 
-        return {
-            "id": str(self.id),
-            "capabilities": caps_state,
-            "properties": props_state
-        }
+        res = {"id": str(self.id)}
+        if caps_state:
+            res["capabilities"] = caps_state
+        if props_state:
+            res["properties"] = props_state
+        if not caps_state and not props_state:
+            res["capabilities"] = []
+        return res
 
     def to_dashboard_dict(self) -> dict:
         """Форматирует устройство для отображения в веб-панели управления."""
@@ -411,16 +402,38 @@ async def save_or_update_device(session: AsyncSession, user_id: int, dev_id: str
     # Инициализация состояний по умолчанию для умений со строгой типизацией
     for cap in caps:
         if "state" not in cap:
-            inst = cap.get("parameters", {}).get("instance", "on")
             cap_type = cap.get("type", "")
+            params = cap.get("parameters", {})
             if cap_type in ("devices.capabilities.on_off", "devices.capabilities.toggle"):
+                inst = params.get("instance", "on")
                 default_val = False
             elif cap_type == "devices.capabilities.mode":
-                modes = cap.get("parameters", {}).get("modes", [])
+                inst = params.get("instance", "mode")
+                modes = params.get("modes", [])
                 default_val = modes[0].get("value") if modes and isinstance(modes[0], dict) else "auto"
             elif cap_type == "devices.capabilities.color_setting":
-                default_val = 0
+                if "temperature_k" in params:
+                    inst = "temperature_k"
+                    t_min = params["temperature_k"].get("min", 2000)
+                    t_max = params["temperature_k"].get("max", 9000)
+                    default_val = 4500 if t_min <= 4500 <= t_max else t_min
+                elif "color_model" in params:
+                    cm = params.get("color_model", "rgb")
+                    inst = cm
+                    default_val = 16777215 if cm == "rgb" else {"h": 0, "s": 0, "v": 100}
+                elif "color_scene" in params:
+                    inst = "scene"
+                    scenes = params.get("color_scene", {}).get("scenes", [])
+                    default_val = scenes[0]["id"] if scenes else "alice"
+                else:
+                    inst = "temperature_k"
+                    default_val = 4500
+            elif cap_type == "devices.capabilities.range":
+                inst = params.get("instance", "brightness")
+                range_p = params.get("range", {})
+                default_val = range_p.get("min", 0)
             else:
+                inst = params.get("instance", "on")
                 default_val = 0
             cap["state"] = {"instance": inst, "value": default_val}
 
@@ -433,7 +446,7 @@ async def save_or_update_device(session: AsyncSession, user_id: int, dev_id: str
                 events = prop.get("parameters", {}).get("events", [])
                 default_val = events[0].get("value") if events and isinstance(events[0], dict) else "opened"
             else:
-                default_val = 0
+                default_val = 0.0
             prop["state"] = {"instance": inst, "value": default_val}
 
     stmt = select(Device).where(Device.id == dev_id, Device.user_id == user_id)
@@ -453,15 +466,32 @@ async def save_or_update_device(session: AsyncSession, user_id: int, dev_id: str
 
         for cap in caps:
             cap_type = cap.get("type")
-            cap_inst = cap.get("parameters", {}).get("instance") or cap.get("state", {}).get("instance")
-            ex_cap = next(
-                (c for c in existing_caps if c.get("type") == cap_type and
-                 (c.get("parameters", {}).get("instance") == cap_inst or
-                  c.get("state", {}).get("instance") == cap_inst)),
-                None
-            )
+            cap_params = cap.get("parameters", {})
+            cap_inst = cap_params.get("instance")
+
+            ex_cap = None
+            for c in existing_caps:
+                if c.get("type") != cap_type:
+                    continue
+                c_param_inst = c.get("parameters", {}).get("instance")
+                if cap_inst:
+                    if c_param_inst == cap_inst:
+                        ex_cap = c
+                        break
+                else:
+                    # Для умений без parameters.instance (color_setting, on_off) сопоставляем по type
+                    ex_cap = c
+                    break
+
             if ex_cap and "state" in ex_cap:
-                cap["state"] = ex_cap["state"]
+                ex_st = ex_cap["state"]
+                # Валидируем сохраненное состояние color_setting
+                if cap_type == "devices.capabilities.color_setting":
+                    if isinstance(ex_st, dict) and ex_st.get("instance") in ("rgb", "temperature_k", "hsv", "scene"):
+                        cap["state"] = ex_st
+                    # Если было невалидное (например "on"), оставляем новое корректное cap["state"]
+                else:
+                    cap["state"] = ex_st
 
         for prop in props:
             prop_type = prop.get("type")
@@ -570,11 +600,45 @@ async def update_device_states(
             inc_state = inc.get("state", {})
             inc_inst = inc_state.get("instance")
             for target in dev_caps:
-                target_inst = target.get("state", {}).get("instance") or target.get("parameters", {}).get("instance")
-                if target.get("type") == inc_type and (not inc_inst or target_inst == inc_inst):
-                    target.setdefault("state", {})["instance"] = inc_inst or target_inst
-                    target["state"]["value"] = inc_state.get("value")
-                    break
+                if target.get("type") != inc_type:
+                    continue
+                target_param_inst = target.get("parameters", {}).get("instance")
+                # Для range, toggle, mode сопоставляем по instance из parameters
+                if target_param_inst and inc_inst and target_param_inst != inc_inst:
+                    continue
+                # Для color_setting проверяем допустимый инстанс
+                if inc_type == "devices.capabilities.color_setting":
+                    if inc_inst not in ("rgb", "temperature_k", "hsv", "scene"):
+                        continue
+
+                # Поддержка относительного изменения (relative: true) для range
+                if inc_type == "devices.capabilities.range" and inc_state.get("relative") is True:
+                    curr_v = target.get("state", {}).get("value", 0)
+                    r_obj = target.get("parameters", {}).get("range", {})
+                    min_v = r_obj.get("min", 0)
+                    max_v = r_obj.get("max", 100)
+                    try:
+                        curr_num = float(curr_v) if ("." in str(curr_v) or isinstance(curr_v, float)) else int(curr_v)
+                        delta_num = float(inc_state.get("value", 0)) if ("." in str(inc_state.get("value", 0)) or isinstance(inc_state.get("value", 0), float)) else int(inc_state.get("value", 0))
+                        new_val = curr_num + delta_num
+                    except Exception:
+                        new_val = delta_num
+                    if min_v is not None and new_val < min_v:
+                        new_val = min_v
+                    if max_v is not None and new_val > max_v:
+                        new_val = max_v
+                    if isinstance(new_val, float) and new_val.is_integer():
+                        new_val = int(new_val)
+                    target["state"] = {
+                        "instance": inc_inst or target_param_inst or "brightness",
+                        "value": new_val
+                    }
+                else:
+                    target["state"] = {
+                        "instance": inc_inst or target.get("state", {}).get("instance") or target_param_inst or "on",
+                        "value": inc_state.get("value")
+                    }
+                break
 
     if properties:
         for inc in properties:
@@ -582,11 +646,16 @@ async def update_device_states(
             inc_state = inc.get("state", {})
             inc_inst = inc_state.get("instance")
             for target in dev_props:
-                target_inst = target.get("state", {}).get("instance") or target.get("parameters", {}).get("instance")
-                if target.get("type") == inc_type and (not inc_inst or target_inst == inc_inst):
-                    target.setdefault("state", {})["instance"] = inc_inst or target_inst
-                    target["state"]["value"] = inc_state.get("value")
-                    break
+                if target.get("type") != inc_type:
+                    continue
+                target_param_inst = target.get("parameters", {}).get("instance")
+                if target_param_inst and inc_inst and target_param_inst != inc_inst:
+                    continue
+                target["state"] = {
+                    "instance": inc_inst or target.get("state", {}).get("instance") or target_param_inst or "temperature",
+                    "value": inc_state.get("value")
+                }
+                break
 
     try:
         device.capabilities_json = json.dumps(dev_caps)

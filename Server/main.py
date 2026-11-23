@@ -52,6 +52,11 @@ from database import (
 
 import config
 
+try:
+    from Server.yandex_specs import YandexSpecHandler
+except ImportError:
+    from yandex_specs import YandexSpecHandler
+
 log_level = getattr(logging, config.LOG_LEVEL, logging.INFO)
 logging.basicConfig(
     level=log_level,
@@ -236,21 +241,24 @@ async def get_current_user_obj(request: Request) -> User:
 _pending_state_tasks: Dict[str, asyncio.Task] = {}
 
 
-async def notify_yandex_discovery(yandex_uid: str, devices: List[dict]):
-    """Оповещает Яндекс об изменении списка устройств конкретного пользователя."""
+async def notify_yandex_discovery(yandex_uid: str, devices: Optional[List[dict]] = None):
+    """Оповещает Яндекс об изменении списка или параметров устройств пользователя.
+    Согласно стандарту Яндекс Диалогов (POST /api/v1/skills/{skill_id}/callback/discovery):
+    в payload передается только user_id, после чего Яндекс запрашивает актуальный список
+    устройств через GET /v1.0/user/devices."""
     if not SKILLS_ID or not SKILL_OAUTH_TOKEN:
         return
     try:
         url = f"https://dialogs.yandex.net/api/v1/skills/{SKILLS_ID}/callback/discovery"
+        auth_header = SKILL_OAUTH_TOKEN if SKILL_OAUTH_TOKEN.startswith("OAuth ") else f"OAuth {SKILL_OAUTH_TOKEN}"
         headers = {
-            "Authorization": SKILL_OAUTH_TOKEN,
+            "Authorization": auth_header,
             "Content-Type": "application/json"
         }
         payload = {
-            "ts": int(time.time()),
+            "ts": time.time(),
             "payload": {
-                "user_id": str(yandex_uid),
-                "devices": devices
+                "user_id": str(yandex_uid)
             }
         }
         def _send():
@@ -262,7 +270,9 @@ async def notify_yandex_discovery(yandex_uid: str, devices: List[dict]):
 
 
 async def notify_yandex_state(yandex_uid: str, dev_id: str, caps: Optional[list] = None, props: Optional[list] = None):
-    """Оповещает Яндекс об изменении состояния устройства с дебаунсом 150 мс."""
+    """Оповещает Яндекс об изменении состояния устройства с дебаунсом 150 мс.
+    Согласно стандарту (POST /api/v1/skills/{skill_id}/callback/state):
+    передаются только type и state (без внутренних id нод и служебных полей)."""
     if not SKILLS_ID or not SKILL_OAUTH_TOKEN:
         return
 
@@ -275,19 +285,27 @@ async def notify_yandex_state(yandex_uid: str, dev_id: str, caps: Optional[list]
         await asyncio.sleep(0.15)
         try:
             url = f"https://dialogs.yandex.net/api/v1/skills/{SKILLS_ID}/callback/state"
+            auth_header = SKILL_OAUTH_TOKEN if SKILL_OAUTH_TOKEN.startswith("OAuth ") else f"OAuth {SKILL_OAUTH_TOKEN}"
             headers = {
-                "Authorization": SKILL_OAUTH_TOKEN,
+                "Authorization": auth_header,
                 "Content-Type": "application/json"
             }
+
+            clean_caps, clean_props = YandexSpecHandler.normalize_callback_state(caps, props)
+            if not clean_caps and not clean_props:
+                return
+
+            device_item: Dict[str, Any] = {"id": dev_id}
+            if clean_caps:
+                device_item["capabilities"] = clean_caps
+            if clean_props:
+                device_item["properties"] = clean_props
+
             payload = {
-                "ts": int(time.time()),
+                "ts": time.time(),
                 "payload": {
                     "user_id": str(yandex_uid),
-                    "devices": [{
-                        "id": dev_id,
-                        "capabilities": caps or [],
-                        "properties": props or []
-                    }]
+                    "devices": [device_item]
                 }
             }
             def _send():
@@ -929,9 +947,11 @@ async def action_devices(request: Request, user: User = Depends(get_current_user
     action_devices_list = body.get("payload", {}).get("devices", [])
 
     async with async_session() as session:
-        user_devices = await get_user_devices(session, user_id=user.id)
+        stmt = select(Device).where(Device.user_id == user.id)
+        res = await session.execute(stmt)
+        user_devices = res.scalars().all()
 
-    devices_map = {d["id"]: d for d in user_devices}
+    devices_map = {d.id: d for d in user_devices}
     results = []
 
     for action_dev in action_devices_list:
@@ -940,6 +960,11 @@ async def action_devices(request: Request, user: User = Depends(get_current_user
 
         if db_dev:
             incoming_caps = action_dev.get("capabilities", [])
+
+            try:
+                saved_caps = json.loads(db_dev.capabilities_json)
+            except Exception:
+                saved_caps = []
 
             # Отправляем команду по WebSocket в Node-RED этого пользователя
             await manager.broadcast_command(
@@ -950,27 +975,24 @@ async def action_devices(request: Request, user: User = Depends(get_current_user
                 timeout=1.5
             )
 
-            # Обновляем локальное состояние в базе
-            async with async_session() as session:
-                async with session.begin():
-                    await update_device_states(
-                        session,
-                        user_id=user.id,
-                        dev_id=dev_id,
-                        capabilities=incoming_caps
-                    )
-
             updated_caps = []
+            states_to_save = []
             for action_cap in incoming_caps:
-                cap_type = action_cap.get("type")
-                cap_instance = action_cap.get("state", {}).get("instance")
-                updated_caps.append({
-                    "type": cap_type,
-                    "state": {
-                        "instance": cap_instance,
-                        "action_result": {"status": "DONE"}
-                    }
-                })
+                resp_cap, st_save = YandexSpecHandler.handle_action_capability(action_cap, saved_caps)
+                updated_caps.append(resp_cap)
+                if st_save:
+                    states_to_save.append(st_save)
+
+            # Обновляем локальное состояние в базе валидированными данными
+            if states_to_save:
+                async with async_session() as session:
+                    async with session.begin():
+                        await update_device_states(
+                            session,
+                            user_id=user.id,
+                            dev_id=dev_id,
+                            capabilities=states_to_save
+                        )
 
             results.append({
                 "id": dev_id,

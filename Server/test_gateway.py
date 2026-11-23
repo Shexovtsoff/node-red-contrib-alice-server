@@ -545,6 +545,380 @@ class TestGateway(unittest.TestCase):
         self.assertEqual(len(bob_d), 0, "Все устройства Bob удалены из БД")
         print("[OK] Полное удаление аккаунта со всеми токенами и устройствами успешно подтверждено")
 
+        # -------------------------------------------------------------
+        # Шаг 15: Валидация схемы состояний УДЯ (color_setting, retrievable: False)
+        # -------------------------------------------------------------
+        # Авторизуем Alice заново для получения активного токена
+        resp_al = self.client.post("/api/v1/getyatoken", json={"code": "code_user_alice"})
+        token_al = resp_al.json()["token"]["access_token"]
+
+        # Регистрируем для Alice устройство с color_setting и non-retrievable событием движения
+        alice_rgb_dev = {
+            "id": "light_rgb_motion",
+            "config": {
+                "name": "RGB Люстра с датчиком движения",
+                "room": "Зал",
+                "type": "devices.types.light",
+                "capabilities": [
+                    {
+                        "type": "devices.capabilities.on_off",
+                        "retrievable": True,
+                        "reportable": True,
+                        "parameters": {"instance": "on"}
+                    },
+                    {
+                        "type": "devices.capabilities.color_setting",
+                        "retrievable": True,
+                        "reportable": True,
+                        "parameters": {
+                            "color_model": "rgb",
+                            "temperature_k": {"min": 2000, "max": 9000}
+                        }
+                    }
+                ],
+                "properties": [
+                    {
+                        "type": "devices.properties.event",
+                        "retrievable": False,
+                        "reportable": True,
+                        "parameters": {
+                            "instance": "motion",
+                            "events": [{"value": "detected"}, {"value": "not_detected"}]
+                        }
+                    }
+                ]
+            }
+        }
+        res_rgb = self.client.post("/gtw/device/config", json=alice_rgb_dev, headers={"Authorization": f"Bearer {token_al}"})
+        self.assertEqual(res_rgb.status_code, 200)
+
+        # Опрашиваем состояние устройства через /v1.0/user/devices/query
+        q_rgb_resp = self.client.post(
+            "/v1.0/user/devices/query",
+            json={"devices": [{"id": "light_rgb_motion"}]},
+            headers={"Authorization": f"Bearer {token_al}"}
+        )
+        self.assertEqual(q_rgb_resp.status_code, 200)
+        q_rgb_data = q_rgb_resp.json()["payload"]["devices"][0]
+
+        # 1. Проверяем, что color_setting получил валидный инстанс ("temperature_k" или "rgb"), а не ошибочный "on"
+        caps_map = {c["type"]: c for c in q_rgb_data["capabilities"]}
+        self.assertIn("devices.capabilities.color_setting", caps_map)
+        cs_state = caps_map["devices.capabilities.color_setting"]["state"]
+        self.assertIn(cs_state["instance"], ["temperature_k", "rgb"])
+        self.assertNotEqual(cs_state["instance"], "on", "Инстанс 'on' для color_setting недопустим в УДЯ!")
+
+        # 2. Проверяем, что не-retrievable свойство (датчик движения) НЕ передается в ответе query
+        self.assertNotIn("properties", q_rgb_data, "Свойства с retrievable: False не должны отдаваться в query")
+
+        # 3. Обновляем состояние цвета на RGB (например, красный цвет 16711680)
+        st_update_rgb = {
+            "id": "light_rgb_motion",
+            "state": {
+                "capabilities": [{
+                    "type": "devices.capabilities.color_setting",
+                    "state": {"instance": "rgb", "value": 16711680}
+                }]
+            }
+        }
+        res_up_rgb = self.client.post("/gtw/device/state", json=st_update_rgb, headers={"Authorization": f"Bearer {token_al}"})
+        self.assertEqual(res_up_rgb.status_code, 200)
+
+        # Повторный query: проверяем корректное обновление инстанса color_setting на rgb
+        q_rgb_resp2 = self.client.post(
+            "/v1.0/user/devices/query",
+            json={"devices": [{"id": "light_rgb_motion"}]},
+            headers={"Authorization": f"Bearer {token_al}"}
+        )
+        q_rgb_data2 = q_rgb_resp2.json()["payload"]["devices"][0]
+        caps_map2 = {c["type"]: c for c in q_rgb_data2["capabilities"]}
+        cs_state2 = caps_map2["devices.capabilities.color_setting"]["state"]
+        self.assertEqual(cs_state2["instance"], "rgb")
+        self.assertEqual(cs_state2["value"], 16711680)
+        print("[OK] Валидация стандартов УДЯ (color_setting, retrievable: False) успешно подтверждена")
+
+        # -------------------------------------------------------------
+        # Шаг 16: Проверка работы видеотрансляции (devices.capabilities.video_stream)
+        # -------------------------------------------------------------
+        camera_dev = {
+            "id": "camera_hall",
+            "config": {
+                "name": "Камера в прихожей",
+                "room": "Прихожая",
+                "type": "devices.types.camera",
+                "capabilities": [
+                    {
+                        "type": "devices.capabilities.video_stream",
+                        "retrievable": False,
+                        "reportable": False,
+                        "parameters": {
+                            "protocols": ["hls"]
+                        },
+                        "state": {
+                            "instance": "get_stream",
+                            "value": {
+                                "stream_url": "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
+                                "protocol": "hls"
+                            }
+                        }
+                    }
+                ],
+                "properties": []
+            }
+        }
+        res_cam = self.client.post("/gtw/device/config", json=camera_dev, headers={"Authorization": f"Bearer {token_al}"})
+        self.assertEqual(res_cam.status_code, 200)
+
+        # 16.1. Проверка Discovery: video_stream имеет retrievable: false и parameters.protocols: ["hls"]
+        disc_cam = self.client.get("/v1.0/user/devices", headers={"Authorization": f"Bearer {token_al}"})
+        self.assertEqual(disc_cam.status_code, 200)
+        c_found = next(d for d in disc_cam.json()["payload"]["devices"] if d["id"] == "camera_hall")
+        v_cap = next(c for c in c_found["capabilities"] if c["type"] == "devices.capabilities.video_stream")
+        self.assertEqual(v_cap["retrievable"], False)
+        self.assertEqual(v_cap["parameters"]["protocols"], ["hls"])
+
+        # 16.2. Проверка Action: запрос потока get_stream должен вернуть stream_url и protocol
+        action_video_req = {
+            "payload": {
+                "devices": [{
+                    "id": "camera_hall",
+                    "capabilities": [{
+                        "type": "devices.capabilities.video_stream",
+                        "state": {
+                            "instance": "get_stream",
+                            "value": {
+                                "protocols": ["hls", "whip", "mjpeg"]
+                            }
+                        }
+                    }]
+                }]
+            }
+        }
+        res_act_video = self.client.post("/v1.0/user/devices/action", json=action_video_req, headers={"Authorization": f"Bearer {token_al}"})
+        self.assertEqual(res_act_video.status_code, 200)
+        act_dev = res_act_video.json()["payload"]["devices"][0]
+        act_cap = act_dev["capabilities"][0]
+        self.assertEqual(act_cap["state"]["action_result"]["status"], "DONE")
+        self.assertEqual(act_cap["state"]["instance"], "get_stream")
+        self.assertIn("value", act_cap["state"], "Ответ на action get_stream ОБЯЗАН содержать объект value со stream_url")
+        self.assertEqual(act_cap["state"]["value"]["stream_url"], "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8")
+        self.assertEqual(act_cap["state"]["value"]["protocol"], "hls")
+        print("[OK] Работа видеотрансляции (action get_stream -> stream_url) успешно подтверждена")
+
+        # -------------------------------------------------------------
+        # Шаг 17: Полная проверка всех спецификаций УДЯ (on_off, color_setting, mode, range, toggle)
+        # -------------------------------------------------------------
+        complex_dev = {
+            "id": "climate_complex",
+            "config": {
+                "name": "Климатический комплекс",
+                "room": "Гостиная",
+                "type": "devices.types.thermostat",
+                "capabilities": [
+                    {
+                        "type": "devices.capabilities.on_off",
+                        "retrievable": True,
+                        "reportable": True,
+                        "parameters": {
+                            "instance": "on",  # Должен быть удален из parameters в Discovery
+                            "split": False
+                        }
+                    },
+                    {
+                        "type": "devices.capabilities.mode",
+                        "retrievable": True,
+                        "reportable": True,
+                        "parameters": {
+                            "instance": "thermostat",
+                            "modes": ["auto", "cool", "heat", "fan_only"]  # Список строк -> должен преобразоваться в [{"value": ...}]
+                        }
+                    },
+                    {
+                        "type": "devices.capabilities.range",
+                        "retrievable": True,
+                        "reportable": True,
+                        "parameters": {
+                            "instance": "temperature",
+                            "unit": "unit.temperature.celsius",
+                            "range": {
+                                "min": 16,
+                                "max": 30,
+                                "precision": 1
+                            }
+                        },
+                        "state": {
+                            "instance": "temperature",
+                            "value": 22
+                        }
+                    },
+                    {
+                        "type": "devices.capabilities.toggle",
+                        "retrievable": True,
+                        "reportable": True,
+                        "parameters": {
+                            "instance": "ionization"
+                        }
+                    },
+                    {
+                        "type": "devices.capabilities.color_setting",
+                        "retrievable": True,
+                        "reportable": True,
+                        "parameters": {
+                            "instance": "color",  # Должен быть удален
+                            "color_model": "rgb",
+                            "color_scene": {
+                                "scenes": [{"id": "night"}, {"id": "reading"}]
+                            }
+                        }
+                    }
+                ],
+                "properties": [
+                    {
+                        "type": "devices.properties.float",
+                        "retrievable": True,
+                        "reportable": True,
+                        "parameters": {
+                            "instance": "humidity",
+                            "unit": "unit.percent"
+                        },
+                        "state": {
+                            "instance": "humidity",
+                            "value": 45.5
+                        }
+                    }
+                ]
+            }
+        }
+        res_complex = self.client.post("/gtw/device/config", json=complex_dev, headers={"Authorization": f"Bearer {token_al}"})
+        self.assertEqual(res_complex.status_code, 200)
+
+        # 17.1. Проверка Discovery: валидация параметров умений
+        disc_comp = self.client.get("/v1.0/user/devices", headers={"Authorization": f"Bearer {token_al}"})
+        self.assertEqual(disc_comp.status_code, 200)
+        c_dev = next(d for d in disc_comp.json()["payload"]["devices"] if d["id"] == "climate_complex")
+
+        # on_off: instance не должно быть в parameters
+        c_onoff = next(c for c in c_dev["capabilities"] if c["type"] == "devices.capabilities.on_off")
+        self.assertNotIn("instance", c_onoff.get("parameters", {}), "on_off parameters не должен содержать instance")
+
+        # mode: modes должен быть списком объектов [{'value': ...}]
+        c_mode = next(c for c in c_dev["capabilities"] if c["type"] == "devices.capabilities.mode")
+        self.assertEqual(c_mode["parameters"]["instance"], "thermostat")
+        self.assertIsInstance(c_mode["parameters"]["modes"], list)
+        self.assertTrue(all(isinstance(m, dict) and "value" in m for m in c_mode["parameters"]["modes"]))
+
+        # range: min=16, max=30, unit=unit.temperature.celsius
+        c_range = next(c for c in c_dev["capabilities"] if c["type"] == "devices.capabilities.range")
+        self.assertEqual(c_range["parameters"]["range"]["min"], 16)
+        self.assertEqual(c_range["parameters"]["range"]["max"], 30)
+
+        # color_setting: instance не должно быть в parameters, color_model и color_scene присутствуют
+        c_color = next(c for c in c_dev["capabilities"] if c["type"] == "devices.capabilities.color_setting")
+        self.assertNotIn("instance", c_color.get("parameters", {}), "color_setting parameters не должен содержать instance")
+        self.assertEqual(c_color["parameters"]["color_model"], "rgb")
+        self.assertEqual(len(c_color["parameters"]["color_scene"]["scenes"]), 2)
+
+        # 17.2. Проверка Query: строгие типы
+        q_comp = self.client.post("/v1.0/user/devices/query", json={"devices": [{"id": "climate_complex"}]}, headers={"Authorization": f"Bearer {token_al}"})
+        self.assertEqual(q_comp.status_code, 200)
+        q_comp_dev = q_comp.json()["payload"]["devices"][0]
+        q_caps_map = {c["type"]: c for c in q_comp_dev["capabilities"]}
+        self.assertIsInstance(q_caps_map["devices.capabilities.on_off"]["state"]["value"], bool)
+        self.assertIsInstance(q_caps_map["devices.capabilities.mode"]["state"]["value"], str)
+        self.assertEqual(q_caps_map["devices.capabilities.mode"]["state"]["value"], "auto")
+        self.assertIsInstance(q_caps_map["devices.capabilities.range"]["state"]["value"], (int, float))
+        self.assertEqual(q_caps_map["devices.capabilities.range"]["state"]["value"], 22)
+        self.assertIsInstance(q_caps_map["devices.capabilities.toggle"]["state"]["value"], bool)
+
+        # 17.3. Проверка Action:
+        # a) Относительное изменение range (relative: true) - было 22, прибавляем +3 -> должно стать 25
+        # b) Валидный режим mode: cool
+        # c) Невалидный режим mode: invalid_turbo -> ошибка INVALID_VALUE
+        # d) Невалидная сцена color_setting: sunrise -> ошибка INVALID_VALUE (поддерживаются только night и reading)
+        # e) Неподдерживаемое умение -> ошибка NOT_SUPPORTED_IN_CURRENT_MODE
+        action_test_req = {
+            "payload": {
+                "devices": [{
+                    "id": "climate_complex",
+                    "capabilities": [
+                        {
+                            "type": "devices.capabilities.range",
+                            "state": {
+                                "instance": "temperature",
+                                "value": 3,
+                                "relative": True
+                            }
+                        },
+                        {
+                            "type": "devices.capabilities.mode",
+                            "state": {
+                                "instance": "thermostat",
+                                "value": "cool"
+                            }
+                        },
+                        {
+                            "type": "devices.capabilities.mode",
+                            "state": {
+                                "instance": "thermostat",
+                                "value": "invalid_mode_name"
+                            }
+                        },
+                        {
+                            "type": "devices.capabilities.color_setting",
+                            "state": {
+                                "instance": "scene",
+                                "value": "unsupported_scene"
+                            }
+                        }
+                    ]
+                }]
+            }
+        }
+        res_act_test = self.client.post("/v1.0/user/devices/action", json=action_test_req, headers={"Authorization": f"Bearer {token_al}"})
+        self.assertEqual(res_act_test.status_code, 200)
+        act_res_caps = res_act_test.json()["payload"]["devices"][0]["capabilities"]
+
+        # range relative action -> DONE
+        self.assertEqual(act_res_caps[0]["state"]["action_result"]["status"], "DONE")
+
+        # mode cool action -> DONE
+        self.assertEqual(act_res_caps[1]["state"]["action_result"]["status"], "DONE")
+
+        # mode invalid_mode_name action -> ERROR INVALID_VALUE
+        self.assertEqual(act_res_caps[2]["state"]["action_result"]["status"], "ERROR")
+        self.assertEqual(act_res_caps[2]["state"]["action_result"]["error_code"], "INVALID_VALUE")
+
+        # color_setting unsupported_scene action -> ERROR INVALID_VALUE
+        self.assertEqual(act_res_caps[3]["state"]["action_result"]["status"], "ERROR")
+        self.assertEqual(act_res_caps[3]["state"]["action_result"]["error_code"], "INVALID_VALUE")
+
+        # Проверяем, что в базе температура обновилась до 25 (22 + 3)
+        q_after = self.client.post("/v1.0/user/devices/query", json={"devices": [{"id": "climate_complex"}]}, headers={"Authorization": f"Bearer {token_al}"})
+        q_after_dev = q_after.json()["payload"]["devices"][0]
+        q_after_caps = {c["type"]: c for c in q_after_dev["capabilities"]}
+        self.assertEqual(q_after_caps["devices.capabilities.range"]["state"]["value"], 25)
+        self.assertEqual(q_after_caps["devices.capabilities.mode"]["state"]["value"], "cool")
+
+        # Неподдерживаемое умение на устройстве (например, video_stream на кондиционере) -> NOT_SUPPORTED_IN_CURRENT_MODE
+        unsupported_req = {
+            "payload": {
+                "devices": [{
+                    "id": "climate_complex",
+                    "capabilities": [{
+                        "type": "devices.capabilities.video_stream",
+                        "state": {"instance": "get_stream"}
+                    }]
+                }]
+            }
+        }
+        res_unsupp = self.client.post("/v1.0/user/devices/action", json=unsupported_req, headers={"Authorization": f"Bearer {token_al}"})
+        self.assertEqual(res_unsupp.status_code, 200)
+        unsupp_cap = res_unsupp.json()["payload"]["devices"][0]["capabilities"][0]
+        self.assertEqual(unsupp_cap["state"]["action_result"]["status"], "ERROR")
+        self.assertEqual(unsupp_cap["state"]["action_result"]["error_code"], "NOT_SUPPORTED_IN_CURRENT_MODE")
+
+        print("[OK] Полная валидация всех умений и спецификаций УДЯ (on_off, mode, range, color_setting, toggle) подтверждена")
+
         print("=== ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ УСПЕШНО ===")
 
 
